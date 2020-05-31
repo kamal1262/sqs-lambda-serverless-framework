@@ -1,0 +1,90 @@
+# Welcome to Serverless!
+#
+# This file is the main config file for your service.
+# It's very minimal at this point and uses default values.
+# You can always add more config options for more control.
+# We've included some commented out config examples here.
+# Just uncomment any of them to get that config option.
+#
+# For full config options, check the docs:
+#    docs.serverless.com
+#
+# Happy Coding!
+
+service: QualityRecognition
+
+  # customDomain:
+  #   domainName: <registered_domain_name>
+  #   basePath: ''
+  #   stage: ${self:provider.stage}
+  #   createRoute53Record: true
+custom:
+  queueName: quality-recognition
+  dlq_queueName: dlq-quality-recognition
+  bucketName: quality-recognition-models-test
+
+provider:
+  name: aws
+  runtime: python3.7
+  stage: test
+  region: ap-southeast-1
+  apiKeys:
+    - qr-receive-payload
+
+plugins:
+  - serverless-python-requirements
+  # - serverless-domain-manager
+iamRoleStatements:
+  - Effect: "Allow"
+    Action:
+      - "sqs.*"
+    Resource:
+      Fn::GetAtt: [ MyQueue, Arn ]
+
+
+functions:
+  receive_payload:
+    handler: handler.receive_payload
+    events:
+      - http:
+          path: qr-enqueue
+          method: POST
+    memorySize: 128
+    timeout: 5
+    environment:
+      SQS_URL:
+        Ref: SQSQueue
+
+  invoke_qr_api:
+    handler: handler.invoke_qr_api
+    events:
+      - schedule:
+        name: invoke qr api every minute
+        rate: rate(1 minutes)
+    memorySize: 128
+    timeout: 11
+#
+resources:
+  Resources:
+    SQSQueue:
+      Type: "AWS::SQS::Queue"
+      Properties:
+        QueueName: ${self:custom.queueName}
+        VisibilityTimeout: 900
+        MessageRetentionPeriod: 60
+        RedrivePolicy:
+          deadLetterTargetArn:
+            "Fn::GetAtt":
+              - ReceiverDeadLetterQueue
+              - Arn
+          maxReceiveCount: 3
+    ReceiverDeadLetterQueue:
+      Type: "AWS::SQS::Queue"
+      Properties:
+        QueueName: ${self:custom.dlq_queueName}
+        MessageRetentionPeriod: 1209600 # 14 days in seconds
+
+    # CreateBucket:
+    #     Type: AWS::S3::Bucket
+    #     Properties:
+    #         BucketName: ${self:custom.bucketName}
